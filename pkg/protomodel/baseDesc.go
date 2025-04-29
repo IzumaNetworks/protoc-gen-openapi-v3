@@ -121,3 +121,50 @@ func (bd baseDesc) Class() string {
 func (bd baseDesc) Location() LocationDescriptor {
 	return newLocationDescriptor(bd.loc, bd.file)
 }
+
+// // FieldDescriptor describes a field within a message
+// type FieldDescriptor struct {
+// 	*descriptorpb.FieldDescriptorProto
+// 	Location   LocationDescriptor
+// 	parent     CoreDesc
+// 	FieldType  CoreDesc
+// 	OneofIndex *int32
+// }
+
+// // Parent implements CoreDesc.Parent
+// func (f *FieldDescriptor) Parent() CoreDesc {
+// 	return f.parent
+// }
+
+// // PackageDesc implements CoreDesc.PackageDesc
+// func (f *FieldDescriptor) PackageDesc() *PackageDescriptor {
+// 	return f.parent.PackageDesc()
+// }
+
+// // IsRepeated returns whether the field is a repeated field
+// func (f *FieldDescriptor) IsRepeated() bool {
+// 	return f.Label != nil && *f.Label == descriptorpb.FieldDescriptorProto_LABEL_REPEATED
+// }
+
+// // FileDesc implements CoreDesc.FileDesc
+// func (f *FieldDescriptor) FileDesc() *FileDescriptor {
+// 	return f.parent.FileDesc()
+// }
+
+// // IsHidden implements CoreDesc.IsHidden
+// func (f *FieldDescriptor) IsHidden() bool {
+// 	// We don't have hidden field descriptors, so return false
+// 	return false
+// }
+
+// // Class implements CoreDesc.Class
+// func (f *FieldDescriptor) Class() string {
+// 	// Field descriptors don't have a class, so return empty string
+// 	return ""
+// }
+
+// // QualifiedName implements CoreDesc.QualifiedName
+// func (f *FieldDescriptor) QualifiedName() []string {
+// 	// Field descriptors don't have a qualified name, so return empty slice
+// 	return []string{}
+// }

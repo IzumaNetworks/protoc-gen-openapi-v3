@@ -1,4 +1,3 @@
-
 ## What's this for?
 
 `protoc-gen-openapi` is a plugin for the Google protocol buffer compiler to generate
@@ -79,3 +78,31 @@ Other supported options are:
 *  `ignored_kube_marker_substrings`
     *   when set, this list of substrings will be used to identify kubebuilder markers to ignore. When multiple are 
         supplied, this will function as a logical OR i.e. any rule which contains a provided substring will be ignored
+
+## Optional Parameters
+
+* additional_empty_schema: Fields separated by + signs. These are messages for which to render empty schemas with "x-kubernetes-preserve-unknown-fields: true". Default none.
+
+* disable_kube_markers: Boolean value that disables kubebuilder markers and validations such as PreserveUnknownFields, MinItems, default, and all CEL rules, but maintaining the Type and Required markers. Default false.
+
+* enum_as_int_or_string: Boolean value that marks enum schemas with "x-kubernetes-int-or-string: true". Default false.
+
+* ignored_kube_marker_substrings: Fields separated by + signs. These are substrings used to identify kubebuilder markers to ignore. Default none.
+
+* include_description: Boolean value that enables/disables descriptions on schemas. Default true.
+
+* int_native: Boolean value that uses native OpenAPI integer schemas for integer types. Default false.
+
+* multiline_description: Boolean value that enables multiple lines in description. Default false.
+
+* per_file: Boolean value that emits per proto file instead of per proto package. Default false.
+
+* proto_oneof: Boolean value that enables proto oneof fields in the schema definitions. Default false.
+
+* single_file: Boolean value that emits all OpenAPIv3 schemas for all packages in a single file. Default false.
+
+* support_proto3_optional: Boolean value that adds support for handling proto3 optional fields correctly. When enabled, optional fields won't be included in the required list. Default false.
+
+* use_ref: Boolean value that enables using $ref references. Default false.
+
+* yaml: Boolean value for outputting yaml instead of JSON. Default false.

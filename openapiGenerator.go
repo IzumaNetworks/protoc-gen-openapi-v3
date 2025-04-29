@@ -31,9 +31,10 @@ import (
 	"google.golang.org/protobuf/types/pluginpb"
 	kubemarkers "sigs.k8s.io/controller-tools/pkg/markers"
 
+	"regexp"
+
 	"github.com/solo-io/protoc-gen-openapi/pkg/markers"
 	"github.com/solo-io/protoc-gen-openapi/pkg/protomodel"
-	"regexp"
 )
 
 var descriptionExclusionMarkers = []string{"$hide_from_docs", "$hide", "@exclude"}
@@ -126,6 +127,9 @@ type openapiGenerator struct {
 	// when set, this list of substrings will be used to identify kubebuilder markers to ignore. When multiple are
 	// supplied, this will function as a logical OR i.e. any rule which contains a provided substring will be ignored
 	ignoredKubeMarkerSubstrings []string
+
+	// If set to true, proto3 optional fields will be properly handled
+	supportProto3Optional bool
 }
 
 type DescriptionConfiguration struct {
@@ -149,6 +153,7 @@ func newOpenAPIGenerator(
 	intNative bool,
 	disableKubeMarkers bool,
 	ignoredKubeMarkers []string,
+	supportProto3Optional bool,
 ) *openapiGenerator {
 	mRegistry, err := markers.NewRegistry()
 	if err != nil {
@@ -168,6 +173,7 @@ func newOpenAPIGenerator(
 		markerRegistry:              mRegistry,
 		disableKubeMarkers:          disableKubeMarkers,
 		ignoredKubeMarkerSubstrings: ignoredKubeMarkers,
+		supportProto3Optional:       supportProto3Optional,
 	}
 }
 
@@ -203,6 +209,11 @@ func buildCustomSchemasByMessageName(messagesWithEmptySchema []string) map[strin
 
 func (g *openapiGenerator) generateOutput(filesToGen map[*protomodel.FileDescriptor]bool) (*pluginpb.CodeGeneratorResponse, error) {
 	response := pluginpb.CodeGeneratorResponse{}
+
+	// Set supported features to include proto3 optional
+	// FEATURE_PROTO3_OPTIONAL is 1 << 5 = 32 (according to protobuf spec)
+	supportedFeatures := uint64(pluginpb.CodeGeneratorResponse_FEATURE_PROTO3_OPTIONAL)
+	response.SupportedFeatures = &supportedFeatures
 
 	if g.singleFile {
 		g.generateSingleFileOutput(filesToGen, &response)
@@ -422,6 +433,17 @@ func (g *openapiGenerator) generateSoloInt64Schema() *openapi3.Schema {
 	return schema
 }
 
+// isProto3Optional checks if a field is explicitly marked as optional in proto3
+func isProto3Optional(field *protomodel.FieldDescriptor) bool {
+	// Access the raw proto field
+	if field == nil || field.FieldDescriptorProto == nil {
+		return false
+	}
+
+	proto3Optional := field.GetProto3Optional()
+	return proto3Optional
+}
+
 func (g *openapiGenerator) generateMessageSchema(message *protomodel.MessageDescriptor) *openapi3.Schema {
 	// skip MapEntry message because we handle map using the map's repeated field.
 	if message.GetOptions().GetMapEntry() {
@@ -446,7 +468,18 @@ func (g *openapiGenerator) generateMessageSchema(message *protomodel.MessageDesc
 			oneOfFields[idx] = append(oneOfFields[idx], fieldName)
 		}
 
-		if g.markerRegistry.IsRequired(fieldRules) {
+		// Check if field should be required
+		isRequired := g.markerRegistry.IsRequired(fieldRules)
+
+		// If proto3 optional support is enabled, check if the field is marked as optional
+		if g.supportProto3Optional && isRequired && field.FieldDescriptorProto != nil {
+			// Skip adding to required fields if it's marked as proto3 optional
+			if field.Proto3Optional != nil && *field.Proto3Optional {
+				isRequired = false
+			}
+		}
+
+		if isRequired {
 			requiredFields = append(requiredFields, fieldName)
 		}
 
