@@ -54,6 +54,7 @@ func generate(request pluginpb.CodeGeneratorRequest) (*pluginpb.CodeGeneratorRes
 	protoOneof := false
 	intNative := false
 	disableKubeMarkers := false
+	supportProto3Optional := false
 
 	var messagesWithEmptySchema []string
 	var ignoredKubeMarkerSubstrings []string
@@ -152,6 +153,15 @@ func generate(request pluginpb.CodeGeneratorRequest) (*pluginpb.CodeGeneratorRes
 			if len(v) > 0 {
 				ignoredKubeMarkerSubstrings = strings.Split(v, "+")
 			}
+		} else if k == "support_proto3_optional" {
+			switch strings.ToLower(v) {
+			case "true":
+				supportProto3Optional = true
+			case "false":
+				supportProto3Optional = false
+			default:
+				return nil, fmt.Errorf("unknown value '%s' for support_proto3_optional", v)
+			}
 		} else {
 			return nil, fmt.Errorf("unknown argument '%s' specified", k)
 		}
@@ -190,6 +200,7 @@ func generate(request pluginpb.CodeGeneratorRequest) (*pluginpb.CodeGeneratorRes
 		intNative,
 		disableKubeMarkers,
 		ignoredKubeMarkerSubstrings,
+		supportProto3Optional,
 	)
 	return g.generateOutput(filesToGen)
 }
