@@ -210,6 +210,11 @@ func buildCustomSchemasByMessageName(messagesWithEmptySchema []string) map[strin
 func (g *openapiGenerator) generateOutput(filesToGen map[*protomodel.FileDescriptor]bool) (*pluginpb.CodeGeneratorResponse, error) {
 	response := pluginpb.CodeGeneratorResponse{}
 
+	// Set supported features to include proto3 optional
+	// FEATURE_PROTO3_OPTIONAL is 1 << 5 = 32 (according to protobuf spec)
+	supportedFeatures := uint64(pluginpb.CodeGeneratorResponse_FEATURE_PROTO3_OPTIONAL)
+	response.SupportedFeatures = &supportedFeatures
+
 	if g.singleFile {
 		g.generateSingleFileOutput(filesToGen, &response)
 	} else {

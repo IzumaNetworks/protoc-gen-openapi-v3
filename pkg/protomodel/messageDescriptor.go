@@ -76,3 +76,8 @@ func newMessageDescriptor(desc *descriptorpb.DescriptorProto, parent *MessageDes
 func (f *FieldDescriptor) IsRepeated() bool {
 	return f.Label != nil && *f.Label == descriptorpb.FieldDescriptorProto_LABEL_REPEATED
 }
+
+// IsOptional returns whether the field is explicitly marked as optional in proto3
+func (f *FieldDescriptor) IsOptional() bool {
+	return f.Proto3Optional != nil && *f.Proto3Optional
+}
