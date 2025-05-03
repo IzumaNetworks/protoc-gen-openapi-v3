@@ -23,6 +23,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"unicode"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/ghodss/yaml"
@@ -326,12 +327,13 @@ func (g *openapiGenerator) generateFile(name string,
 	pkg *protomodel.FileDescriptor,
 	messages map[string]*protomodel.MessageDescriptor,
 	enums map[string]*protomodel.EnumDescriptor,
-	_ map[string]*protomodel.ServiceDescriptor,
+	services map[string]*protomodel.ServiceDescriptor,
 ) pluginpb.CodeGeneratorResponse_File {
 	g.messages = messages
 
 	allSchemas := make(map[string]*openapi3.SchemaRef)
 
+	// Generate all message schemas
 	for _, message := range messages {
 		// we generate the top-level messages here and the nested messages are generated
 		// inside each top-level message.
@@ -375,6 +377,10 @@ func (g *openapiGenerator) generateFile(name string,
 
 	c := openapi3.NewComponents()
 	c.Schemas = allSchemas
+
+	// Generate paths from services if any
+	paths := g.generatePaths(services, allSchemas)
+
 	// add the openapi object required by the spec.
 	o := openapi3.T{
 		OpenAPI: "3.0.1",
@@ -383,6 +389,7 @@ func (g *openapiGenerator) generateFile(name string,
 			Version: version,
 		},
 		Components: c,
+		Paths:      paths,
 	}
 
 	g.buffer.Reset()
@@ -871,4 +878,263 @@ func isIgnoredKubeMarker(regexp *regexp.Regexp, l string) bool {
 	}
 
 	return regexp.MatchString(l)
+}
+
+// generatePaths creates OpenAPI paths from service descriptors with HTTP annotations
+func (g *openapiGenerator) generatePaths(services map[string]*protomodel.ServiceDescriptor, schemas map[string]*openapi3.SchemaRef) openapi3.Paths {
+	paths := make(openapi3.Paths)
+
+	for _, service := range services {
+		for _, method := range service.Methods {
+			// Find HTTP rules in method options
+			options := method.GetOptions()
+			if options == nil {
+				continue
+			}
+
+			// HTTP rules from method options
+			var httpPath string
+			var httpMethod string
+			var httpBody string
+
+			// First check if the method has a comment that contains http path and method
+			// Looking for pattern like: @http.get "/path" or similar annotations
+			comments, _ := g.parseComments(method)
+
+			// Extract HTTP details from options
+			// The HTTP rule can be:
+			// - Google API HTTP annotations (extension 72295728)
+			// - Comments with HTTP path and method
+
+			// Manual inspection of method options for HTTP rules (google.api.http)
+			// Extract field number 72295728 which is the http option in google.api.annotations
+
+			// For proto MethodOptions, HttpRule is in extension with tag 72295728
+			// We need to inspect options for this extension field
+			for _, uninterpreted := range options.GetUninterpretedOption() {
+				if uninterpreted.GetName() != nil && len(uninterpreted.GetName()) > 0 {
+					for _, namePart := range uninterpreted.GetName() {
+						// Check if this is the google.api.http extension
+						if namePart.GetNamePart() == "google.api.http" || namePart.GetNamePart() == "(google.api.http)" {
+							// This could contain the HTTP rule
+							// Try to extract path and method
+							aggregate := uninterpreted.GetAggregateValue()
+							if strings.Contains(aggregate, "get:") {
+								httpMethod = "GET"
+								parts := strings.Split(aggregate, "get:")
+								if len(parts) > 1 {
+									httpPath = strings.TrimSpace(parts[1])
+									httpPath = strings.Trim(httpPath, "\"")
+								}
+							} else if strings.Contains(aggregate, "post:") {
+								httpMethod = "POST"
+								parts := strings.Split(aggregate, "post:")
+								if len(parts) > 1 {
+									httpPath = strings.TrimSpace(parts[1])
+									httpPath = strings.Trim(httpPath, "\"")
+								}
+							} else if strings.Contains(aggregate, "put:") {
+								httpMethod = "PUT"
+								parts := strings.Split(aggregate, "put:")
+								if len(parts) > 1 {
+									httpPath = strings.TrimSpace(parts[1])
+									httpPath = strings.Trim(httpPath, "\"")
+								}
+							} else if strings.Contains(aggregate, "delete:") {
+								httpMethod = "DELETE"
+								parts := strings.Split(aggregate, "delete:")
+								if len(parts) > 1 {
+									httpPath = strings.TrimSpace(parts[1])
+									httpPath = strings.Trim(httpPath, "\"")
+								}
+							} else if strings.Contains(aggregate, "patch:") {
+								httpMethod = "PATCH"
+								parts := strings.Split(aggregate, "patch:")
+								if len(parts) > 1 {
+									httpPath = strings.TrimSpace(parts[1])
+									httpPath = strings.Trim(httpPath, "\"")
+								}
+							}
+
+							// Extract body field if present
+							if strings.Contains(aggregate, "body:") {
+								parts := strings.Split(aggregate, "body:")
+								if len(parts) > 1 {
+									httpBody = strings.TrimSpace(parts[1])
+									httpBody = strings.Trim(httpBody, "\"")
+								}
+							}
+						}
+					}
+				}
+			}
+
+			// Look in comments for HTTP annotations if not found in options
+			// Format: @http.get("/path") or @http.post("/path", body="*")
+			if httpMethod == "" && httpPath == "" {
+				comment := comments
+				if strings.Contains(comment, "@http.get") {
+					httpMethod = "GET"
+					startIdx := strings.Index(comment, "@http.get") + len("@http.get")
+					pathStartOffset := strings.Index(comment[startIdx:], "\"")
+					if pathStartOffset >= 0 {
+						pathStart := startIdx + pathStartOffset + 1
+						pathEndOffset := strings.Index(comment[pathStart:], "\"")
+						if pathEndOffset >= 0 {
+							pathEnd := pathStart + pathEndOffset
+							httpPath = comment[pathStart:pathEnd]
+						}
+					}
+				} else if strings.Contains(comment, "@http.post") {
+					httpMethod = "POST"
+					startIdx := strings.Index(comment, "@http.post") + len("@http.post")
+					pathStartOffset := strings.Index(comment[startIdx:], "\"")
+					if pathStartOffset >= 0 {
+						pathStart := startIdx + pathStartOffset + 1
+						pathEndOffset := strings.Index(comment[pathStart:], "\"")
+						if pathEndOffset >= 0 {
+							pathEnd := pathStart + pathEndOffset
+							httpPath = comment[pathStart:pathEnd]
+						}
+					}
+
+					if strings.Contains(comment, "body=") {
+						bodyStart := strings.Index(comment, "body=") + len("body=")
+						bodyValStartOffset := strings.Index(comment[bodyStart:], "\"")
+						if bodyValStartOffset >= 0 {
+							bodyValStart := bodyStart + bodyValStartOffset + 1
+							bodyValEndOffset := strings.Index(comment[bodyValStart:], "\"")
+							if bodyValEndOffset >= 0 {
+								bodyValEnd := bodyValStart + bodyValEndOffset
+								httpBody = comment[bodyValStart:bodyValEnd]
+							}
+						}
+					}
+				}
+				// Similarly for PUT, DELETE, PATCH if needed
+			}
+
+			// If still no HTTP method/path, try to infer from method name
+			if httpMethod == "" || httpPath == "" {
+				rpcName := method.GetName()
+				if strings.HasPrefix(rpcName, "Get") {
+					httpMethod = "GET"
+					resource := strings.TrimPrefix(rpcName, "Get")
+					httpPath = "/api/v1/" + camelToSnake(resource)
+				} else if strings.HasPrefix(rpcName, "List") {
+					httpMethod = "GET"
+					resource := strings.TrimPrefix(rpcName, "List")
+					httpPath = "/api/v1/" + camelToSnake(resource) + "s"
+				} else if strings.HasPrefix(rpcName, "Create") {
+					httpMethod = "POST"
+					resource := strings.TrimPrefix(rpcName, "Create")
+					httpPath = "/api/v1/" + camelToSnake(resource)
+					httpBody = "*"
+				} else if strings.HasPrefix(rpcName, "Update") {
+					httpMethod = "PUT"
+					resource := strings.TrimPrefix(rpcName, "Update")
+					httpPath = "/api/v1/" + camelToSnake(resource)
+					httpBody = "*"
+				} else if strings.HasPrefix(rpcName, "Delete") {
+					httpMethod = "DELETE"
+					resource := strings.TrimPrefix(rpcName, "Delete")
+					httpPath = "/api/v1/" + camelToSnake(resource)
+				} else if strings.HasPrefix(rpcName, "Patch") {
+					httpMethod = "PATCH"
+					resource := strings.TrimPrefix(rpcName, "Patch")
+					httpPath = "/api/v1/" + camelToSnake(resource)
+					httpBody = "*"
+				} else {
+					// Default to POST for other methods
+					httpMethod = "POST"
+					httpPath = "/api/v1/" + camelToSnake(rpcName)
+					httpBody = "*"
+				}
+			}
+
+			// Prepare the OpenAPI operation
+			operation := &openapi3.Operation{
+				Summary:     method.GetName(),
+				Description: g.generateDescription(method),
+				OperationID: fmt.Sprintf("%s_%s", service.GetName(), method.GetName()),
+				Tags:        []string{service.GetName()},
+			}
+
+			// Add request body if needed
+			if httpBody != "" {
+				inputMsg := method.Input
+				if inputMsg != nil {
+					ref := &openapi3.SchemaRef{
+						Ref: fmt.Sprintf("#/components/schemas/%s", g.absoluteName(inputMsg)),
+					}
+					requestBody := &openapi3.RequestBody{
+						Required: true,
+						Content: openapi3.Content{
+							"application/json": &openapi3.MediaType{
+								Schema: ref,
+							},
+						},
+					}
+					operation.RequestBody = &openapi3.RequestBodyRef{
+						Value: requestBody,
+					}
+				}
+			}
+
+			// Add response
+			outputMsg := method.Output
+			if outputMsg != nil {
+				successResponse := &openapi3.Response{
+					Description: &[]string{"Success"}[0],
+				}
+				if schema, ok := schemas[g.absoluteName(outputMsg)]; ok {
+					successResponse.Content = openapi3.Content{
+						"application/json": &openapi3.MediaType{
+							Schema: schema,
+						},
+					}
+				}
+				operation.Responses = openapi3.Responses{
+					"200": &openapi3.ResponseRef{
+						Value: successResponse,
+					},
+				}
+			}
+
+			// Add the operation to the path
+			pathItem := paths[httpPath]
+			if pathItem == nil {
+				pathItem = &openapi3.PathItem{}
+				paths[httpPath] = pathItem
+			}
+
+			// Set the operation on the path item
+			switch httpMethod {
+			case "GET":
+				pathItem.Get = operation
+			case "POST":
+				pathItem.Post = operation
+			case "PUT":
+				pathItem.Put = operation
+			case "DELETE":
+				pathItem.Delete = operation
+			case "PATCH":
+				pathItem.Patch = operation
+			}
+		}
+	}
+
+	return paths
+}
+
+// camelToSnake converts a camelCase string to snake_case
+func camelToSnake(s string) string {
+	var result strings.Builder
+	for i, r := range s {
+		if i > 0 && 'A' <= r && r <= 'Z' {
+			result.WriteRune('_')
+		}
+		result.WriteRune(unicode.ToLower(r))
+	}
+	return result.String()
 }
